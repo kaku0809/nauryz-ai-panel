@@ -14,35 +14,55 @@ VIDEO_FILE = 'kydyr_ata.mp4'
 st.set_page_config(page_title="Қыдыр ата", layout="centered")
 
 # --- СТИЛЬ (CSS) ---
-# Батырманы видеоға жақындату және дизайнды әдемілеу
+# Батырманы видеоның үстіне дәл ортаға немесе төменірек қою
 st.markdown("""
     <style>
-    .stVideo {
-        border-radius: 20px;
-        box-shadow: 0px 4px 15px rgba(0,0,0,0.3);
-    }
-    div[data-testid="stVerticalBlock"] > div:nth-child(3) {
+    /* Видео контейнері */
+    .video-container {
         position: relative;
-        text-align: center;
-        margin-top: -100px; /* Батырманы видеоның үстіне қарай жылжыту */
-        z-index: 10;
+        width: 100%;
+        max-width: 500px;
+        margin: auto;
+    }
+    
+    /* Видеоның астындағы бос орындарды алу */
+    iframe, video {
+        border-radius: 15px;
+    }
+
+    /* Микрофон батырмасын қозғалту */
+    /* Streamlit-тің mic_recorder элементін нысанаға аламыз */
+    div[data-testid="stVerticalBlock"] > div:nth-child(2) {
+        position: absolute;
+        bottom: 15%; /* Видеоның төменгі жағынан биіктігі */
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 99;
+    }
+    
+    /* Батырманың стилін өзгерту (опционально) */
+    button {
+        background-color: #ff4b4b !important;
+        color: white !important;
+        border-radius: 50px !important;
+        padding: 10px 25px !important;
+        border: 2px solid white !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
+# --- ИНТЕРФЕЙС ---
 st.title("🌙 Қыдыр атамен сұхбат")
 
-# 1. ВИДЕО (Дыбыссыз)
+# 1. ВИДЕО (Дыбыссыз фон)
 if os.path.exists(VIDEO_FILE):
-    # muted=True - дыбысты өшіреді
     st.video(VIDEO_FILE, format="video/mp4", autoplay=True, loop=True, muted=True)
 else:
     st.error("Видео файлы табылмады!")
 
-# 2. МИКРОФОН (Видеоның астында немесе үстінде тұрады)
-st.write("###") # Аздап бос орын
+# 2. МИКРОФОН (CSS арқылы жоғары жылжытылған)
 audio_input = mic_recorder(
-    start_prompt="🎤 Қыдыр атадан бата сұрау", 
+    start_prompt="🎤 Атаға сұрақ қою", 
     stop_prompt="🛑 Тоқтату", 
     key='recorder'
 )
@@ -57,7 +77,7 @@ if audio_input:
     with open("temp_audio.wav", "wb") as f:
         f.write(audio_input['bytes'])
     
-    with st.spinner("Қыдыр ата ойланып жатыр..."):
+    with st.spinner("Қыдыр ата тыңдап тұр..."):
         try:
             with open("temp_audio.wav", "rb") as audio_file:
                 transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
@@ -66,7 +86,7 @@ if audio_input:
 
             completion = client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{"role": "system", "content": "Сен Қыдыр атасың. Қысқа қазақша бата бер."},
+                messages=[{"role": "system", "content": "Сен Қыдыр атасың. Даналықпен, өте қысқа қазақша бата бер."},
                           {"role": "user", "content": user_text}]
             )
             ai_reply = completion.choices[0].message.content
@@ -75,7 +95,7 @@ if audio_input:
             # Дыбыс жасау
             asyncio.run(generate_voice(ai_reply))
             
-            # 3. АУДИОНЫ ЖАСЫРЫН ОЙНАТУ (HTML арқылы)
+            # 3. АУДИОНЫ ЖАСЫРЫН ОЙНАТУ
             if os.path.exists(REPLY_AUDIO):
                 audio_file = open(REPLY_AUDIO, "rb")
                 audio_bytes = audio_file.read()
