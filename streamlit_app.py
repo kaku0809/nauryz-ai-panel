@@ -11,61 +11,68 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 REPLY_AUDIO = "reply.mp3"
 VIDEO_FILE = 'kydyr_ata.mp4'
 
-st.set_page_config(page_title="Қыдыр ата", layout="centered")
+# Экран баптаулары
+st.set_page_config(page_title="Қыдыр ата AI", layout="wide", initial_sidebar_state="collapsed")
 
-# --- СТИЛЬ (CSS) ---
-# Батырманы видеоның үстіне дәл ортаға немесе төменірек қою
-st.markdown("""
+# --- FULLSCREEN CSS ---
+st.markdown(f"""
     <style>
-    /* Видео контейнері */
-    .video-container {
-        position: relative;
-        width: 100%;
-        max-width: 500px;
-        margin: auto;
-    }
+    /* Streamlit-тің стандартты элементтерін жасыру */
+    #MainMenu, footer, header {{visibility: hidden;}}
+    .stApp {{
+        background-color: black;
+    }}
     
-    /* Видеоның астындағы бос орындарды алу */
-    iframe, video {
-        border-radius: 15px;
-    }
+    /* Видеоны бүкіл экранға жаю */
+    .fullscreen-bg {{
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        z-index: -1;
+    }}
+    .fullscreen-bg video {{
+        width: 100%;
+        height: 100%;
+        object-fit: cover; /* Видеоны экранға толық толтыру */
+    }}
 
-    /* Микрофон батырмасын қозғалту */
-    /* Streamlit-тің mic_recorder элементін нысанаға аламыз */
-    div[data-testid="stVerticalBlock"] > div:nth-child(2) {
-        position: absolute;
-        bottom: 15%; /* Видеоның төменгі жағынан биіктігі */
+    /* Микрофон контейнері */
+    .mic-overlay {{
+        position: fixed;
+        bottom: 10%;
         left: 50%;
         transform: translateX(-50%);
+        z-index: 100;
+        text-align: center;
+    }}
+
+    /* Жауап мәтінінің стилі (Видео үстіндегі субтитр сияқты) */
+    .response-box {{
+        position: fixed;
+        top: 10%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 80%;
+        background: rgba(0, 0, 0, 0.6);
+        color: white;
+        padding: 20px;
+        border-radius: 15px;
+        text-align: center;
+        font-size: 24px;
         z-index: 99;
-    }
-    
-    /* Батырманың стилін өзгерту (опционально) */
-    button {
-        background-color: #ff4b4b !important;
-        color: white !important;
-        border-radius: 50px !important;
-        padding: 10px 25px !important;
-        border: 2px solid white !important;
-    }
+        border: 1px solid gold;
+    }}
     </style>
+    
+    <div class="fullscreen-bg">
+        <video autoplay loop muted playsinline>
+            <source src="data:video/mp4;base64,{base64.b64encode(open(VIDEO_FILE, 'rb').read()).decode()}" type="video/mp4">
+        </video>
+    </div>
     """, unsafe_allow_html=True)
-
-# --- ИНТЕРФЕЙС ---
-st.title("🌙 Қыдыр атамен сұхбат")
-
-# 1. ВИДЕО (Дыбыссыз фон)
-if os.path.exists(VIDEO_FILE):
-    st.video(VIDEO_FILE, format="video/mp4", autoplay=True, loop=True, muted=True)
-else:
-    st.error("Видео файлы табылмады!")
-
-# 2. МИКРОФОН (CSS арқылы жоғары жылжытылған)
-audio_input = mic_recorder(
-    start_prompt="🎤 Атаға сұрақ қою", 
-    stop_prompt="🛑 Тоқтату", 
-    key='recorder'
-)
 
 # --- ЛОГИКА ---
 async def generate_voice(text):
@@ -73,35 +80,39 @@ async def generate_voice(text):
     communicate = edge_tts.Communicate(text, voice)
     await communicate.save(REPLY_AUDIO)
 
+# Микрофонды экранның ортасына шығару
+st.markdown('<div class="mic-overlay">', unsafe_allow_html=True)
+audio_input = mic_recorder(
+    start_prompt="🎤 Атадан бата сұрау", 
+    stop_prompt="🛑 Тоқтату", 
+    key='recorder'
+)
+st.markdown('</div>', unsafe_allow_html=True)
+
 if audio_input:
     with open("temp_audio.wav", "wb") as f:
         f.write(audio_input['bytes'])
     
-    with st.spinner("Қыдыр ата тыңдап тұр..."):
-        try:
-            with open("temp_audio.wav", "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-                user_text = transcript.text
-                st.chat_message("user").write(user_text)
+    try:
+        with open("temp_audio.wav", "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+            user_text = transcript.text
 
-            completion = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "system", "content": "Сен Қыдыр атасың. Даналықпен, өте қысқа қазақша бата бер."},
-                          {"role": "user", "content": user_text}]
-            )
-            ai_reply = completion.choices[0].message.content
-            st.chat_message("assistant").write(ai_reply)
+        completion = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": "Сен Қыдыр атасың. Даналықпен, өте қысқа қазақша бата бер."},
+                      {"role": "user", "content": user_text}]
+        )
+        ai_reply = completion.choices[0].message.content
+        
+        # Жауапты экранның жоғарғы жағына шығару
+        st.markdown(f'<div class="response-box">{ai_reply}</div>', unsafe_allow_html=True)
 
-            # Дыбыс жасау
-            asyncio.run(generate_voice(ai_reply))
-            
-            # 3. АУДИОНЫ ЖАСЫРЫН ОЙНАТУ
-            if os.path.exists(REPLY_AUDIO):
-                audio_file = open(REPLY_AUDIO, "rb")
-                audio_bytes = audio_file.read()
-                audio_base64 = base64.b64encode(audio_bytes).decode()
-                audio_html = f'<audio src="data:audio/mp3;base64,{audio_base64}" autoplay="autoplay"></audio>'
-                st.markdown(audio_html, unsafe_allow_html=True)
+        # Дыбыс жасау және жасырын ойнату
+        asyncio.run(generate_voice(ai_reply))
+        if os.path.exists(REPLY_AUDIO):
+            audio_base64 = base64.b64encode(open(REPLY_AUDIO, "rb").read()).decode()
+            st.markdown(f'<audio src="data:audio/mp3;base64,{audio_base64}" autoplay></audio>', unsafe_allow_html=True)
                 
-        except Exception as e:
-            st.error(f"Қате: {e}")
+    except Exception as e:
+        st.error(f"Қате: {e}")
