@@ -3,85 +3,85 @@ from openai import OpenAI
 import asyncio
 import edge_tts
 import os
+import base64
 from streamlit_mic_recorder import mic_recorder
 
 # --- БАПТАУЛАР ---
-# API кілтін Streamlit Cloud Secrets-тен қауіпсіз түрде аламыз
-try:
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-except Exception:
-    st.error("Қате: OpenAI API кілті Secrets бөлімінде табылмады! Streamlit Settings -> Secrets бөліміне кілтті қосыңыз.")
-
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 REPLY_AUDIO = "reply.mp3"
 VIDEO_FILE = 'kydyr_ata.mp4'
 
-st.set_page_config(page_title="Наурыз AI - Қыдыр ата", layout="centered")
+st.set_page_config(page_title="Қыдыр ата", layout="centered")
 
-# --- ИНТЕРФЕЙС ---
+# --- СТИЛЬ (CSS) ---
+# Батырманы видеоға жақындату және дизайнды әдемілеу
+st.markdown("""
+    <style>
+    .stVideo {
+        border-radius: 20px;
+        box-shadow: 0px 4px 15px rgba(0,0,0,0.3);
+    }
+    div[data-testid="stVerticalBlock"] > div:nth-child(3) {
+        position: relative;
+        text-align: center;
+        margin-top: -100px; /* Батырманы видеоның үстіне қарай жылжыту */
+        z-index: 10;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title("🌙 Қыдыр атамен сұхбат")
-st.write("Ұлыстың ұлы күні құтты болсын! Төмендегі батырманы басып, Қыдыр атаға сұрақ қойыңыз немесе бата сұраңыз.")
 
-# Видеоны көрсету (Аутоплей және циклмен)
+# 1. ВИДЕО (Дыбыссыз)
 if os.path.exists(VIDEO_FILE):
-    st.video(VIDEO_FILE, format="video/mp4", autoplay=True, loop=True)
+    # muted=True - дыбысты өшіреді
+    st.video(VIDEO_FILE, format="video/mp4", autoplay=True, loop=True, muted=True)
 else:
-    st.warning(f"Видео файлы табылмады: {VIDEO_FILE}. Файлды GitHub-қа дәл осы атпен жүктегеніңізге көз жеткізіңіз.")
+    st.error("Видео файлы табылмады!")
 
-# --- ФУНКЦИЯЛАР ---
-async def generate_voice(text):
-    """Microsoft Edge арқылы қазақша дауыс жасау"""
-    voice = "kk-KZ-DauletNeural"
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(REPLY_AUDIO)
-
-# --- МИКРОФОН ЖӘНЕ ЛОГИКА ---
-st.write("---")
-# Сөйлеуді жазу батырмасы
+# 2. МИКРОФОН (Видеоның астында немесе үстінде тұрады)
+st.write("###") # Аздап бос орын
 audio_input = mic_recorder(
-    start_prompt="🎤 Сөйлеуді бастау", 
+    start_prompt="🎤 Қыдыр атадан бата сұрау", 
     stop_prompt="🛑 Тоқтату", 
     key='recorder'
 )
 
+# --- ЛОГИКА ---
+async def generate_voice(text):
+    voice = "kk-KZ-DauletNeural"
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(REPLY_AUDIO)
+
 if audio_input:
-    # 1. Дауысты уақытша файлға сақтау
     with open("temp_audio.wav", "wb") as f:
         f.write(audio_input['bytes'])
     
-    with st.spinner("Қыдыр ата сізді тыңдап, ойланып жатыр..."):
+    with st.spinner("Қыдыр ата ойланып жатыр..."):
         try:
-            # 2. Whisper арқылы дауысты мәтінге айналдыру
             with open("temp_audio.wav", "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1", 
-                    file=audio_file
-                )
+                transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
                 user_text = transcript.text
-                st.info(f"🗨 **Сіз:** {user_text}")
+                st.chat_message("user").write(user_text)
 
-            # 3. GPT-4 арқылы Қыдыр атаның жауабын алу
             completion = client.chat.completions.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "Сен Наурыз мерекесінде қонақтарға бата беретін ақылды Қыдыр атасың. Қазақ тілінде қысқа (2-3 сөйлем), даналыққа толы жауап бер немесе бата бер."},
-                    {"role": "user", "content": user_text}
-                ]
+                messages=[{"role": "system", "content": "Сен Қыдыр атасың. Қысқа қазақша бата бер."},
+                          {"role": "user", "content": user_text}]
             )
             ai_reply = completion.choices[0].message.content
-            st.success(f"👴 **Қыдыр ата:** {ai_reply}")
+            st.chat_message("assistant").write(ai_reply)
 
-            # 4. Edge-TTS арқылы қазақша дыбыстау
-            if os.path.exists(REPLY_AUDIO):
-                try:
-                    os.remove(REPLY_AUDIO)
-                except:
-                    pass
-            
+            # Дыбыс жасау
             asyncio.run(generate_voice(ai_reply))
             
-            # 5. Аудионы ойнату
+            # 3. АУДИОНЫ ЖАСЫРЫН ОЙНАТУ (HTML арқылы)
             if os.path.exists(REPLY_AUDIO):
-                st.audio(REPLY_AUDIO, format='audio/mp3', autoplay=True)
+                audio_file = open(REPLY_AUDIO, "rb")
+                audio_bytes = audio_file.read()
+                audio_base64 = base64.b64encode(audio_bytes).decode()
+                audio_html = f'<audio src="data:audio/mp3;base64,{audio_base64}" autoplay="autoplay"></audio>'
+                st.markdown(audio_html, unsafe_allow_html=True)
                 
         except Exception as e:
-            st.error(f"Қате орын алды: {e}")
+            st.error(f"Қате: {e}")
