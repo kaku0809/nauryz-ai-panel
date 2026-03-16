@@ -1,0 +1,4 @@
+streamlit
+openai
+edge_tts
+streamlit-mic-recorder
